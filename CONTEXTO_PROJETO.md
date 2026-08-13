@@ -148,6 +148,71 @@ Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards branco
 4. **Verificação:** XML válido, ids únicos (229 blocos no Screen2.bky), `blk59`/`blk66` removidos, `blkS1` (evento) com DO = `blkS2`(set limite) → `blkS4`(StoreValue) → `blkS7`(Label6), `blk224` DO = set limite → `blkS12`(set Slider1.Value) → `AtualizarPainel`; `.aia` rezipado, `aia_bytes.py` **regenerado** e `TorreEV.aia` da pasta byte idêntico por conteúdo (9 arquivos; `project.properties` inalterado).
 5. **Marcador de versão (`v4`):** usuário relatou que nada era registrado mesmo após as correções — sintoma típico de **build/projeto antigo rodando no celular** (o app roda pelo site AI2 + AI Companion, ou seja, o que vale é o **projeto aberto no navegador**, não o `.aia` da pasta). Para diagnóstico definitivo, o Screen2 agora exibe **`PAINEL DO SINDICO - v4`** (Label1) e `Title: "Torre EV - Painel v4"` no `.scm`. Se o celular não mostrar "v4", o projeto aberto no AI2 é uma versão antiga → **importar o `TorreEV.aia` de novo** (Importar projeto) e testar por ele.
 
+### 3.9 CAUSA RAIZ: blocos irmãos dentro de `<statement>` (sessão atual)
+1. **Bug relatado:** ao clicar em Salvar, erro de runtime `Cannot find the component: Label5` repetindo (aviso de supressão de 5 s). O projeto no AI2 já era o **v4**, então não era build antigo.
+2. **Investigação:** `Label5` existe no `Screen2.scm` (subtítulo do `CardStatus`) e é escrito por `blk84`/`blk105`/`blk119`, sempre **depois** de `Label4`/`Label6`/`Label7` no `AtualizarPainel`. O erro parar exatamente em `Label5` só faz sentido se os blocos anteriores **não estivessem sendo executados**.
+3. **Causa raiz (estrutural, afeta as 4 telas):** todos os `.bky` gerados encadeavam comandos sequenciais como **blocos irmãos** dentro do mesmo `<statement>`:
+   ```xml
+   <statement name="DO"><block id="A"/><block id="B"/><block id="C"/></statement>
+   ```
+   O loader do Blockly (`Blockly.Xml.domToBlockHeadless_`) percorre os filhos de `value`/`statement` e **sobrescreve** a variável `childBlockElement` a cada `<block>` encontrado — ou seja, **só o último irmão é carregado** e os anteriores são descartados em silêncio. O formato correto é aninhar com `<next>`:
+   ```xml
+   <statement name="DO"><block id="A"><next><block id="B"><next><block id="C"/></next></block></next></block></statement>
+   ```
+   O projeto tinha **0 tags `<next>`** e **48 blocos descartados** (Screen1: 1 · Screen2: 40 · Screen3: 5 · Screen4: 2).
+4. **Sintomas que isso explica** (todos já relatados antes e atribuídos a outras causas):
+   - `AtualizarPainel` virava só o `controls_if` final → `Label4`/`Label6`/`Label7`/`ListPicker1` nunca atualizavam, `total`/`nomes` nunca eram recalculados. No estado normal (`ok`) o único componente que ele tocava era o **`Label5`**.
+   - Salvar no Screen3 executava **só** o `controls_closeScreen`; o `lists_add_items` e o `TinyDB1.StoreValue` eram descartados → **"cliquei em salvar e não aconteceu nada"** (3.8) e **"nada era registrado"** (3.8.5) nunca foram build antigo.
+   - `Screen2.Initialize` só chamava `AtualizarPainel`, sem carregar o `limite` do TinyDB nem posicionar o Slider.
+5. **Correção:** transformação mecânica dos 4 `.bky`, encadeando os irmãos com `<next>` (14 statements, 48 blocos reconectados), preservando os atributos originais byte a byte — inclusive o `xmlns` das `mutation`, que se perderia se o arquivo fosse reserializado por um parser XML comum.
+6. **Bug secundário corrigido junto (`Clock1` atravessando telas):** `Clock1` tinha `TimerEnabled: True` sem nenhum bloco que o desligasse, e `TimerAlwaysFires` ausente no `.scm` (**padrão do App Inventor = True**). O timer continuava disparando `AtualizarPainel` a cada 2 s **enquanto o usuário estava no Screen3/Screen4**, onde `Label4`/`Label5`/etc. não existem. Depois do fix do `<next>` isso passaria a dar `Cannot find the component: Label4`. Correções:
+   - `Button1.Click` (→Screen3) e `Button3.Click` (→Screen4) ganharam `set Clock1.TimerEnabled = false` **antes** do `open another screen` (`blkTM1`–`blkTM4`).
+   - `Screen2.Initialize` e `Screen2.OtherScreenClosed` ganharam `set Clock1.TimerEnabled = true` como primeiro bloco (`blkTM5`–`blkTM8`).
+   - `.scm`: `Clock1` recebeu `"TimerAlwaysFires": "False"` como segunda camada (necessária porque, no AI Companion, as telas dividem a mesma activity e o `onPause` não é confiável).
+7. **Validação:** XML válido nas 4 telas · nenhum bloco perdido (18/229→237/97/32, os 8 novos são os do Clock) · ids únicos · **todo `<statement>`, `<value>` e `<next>` com exatamente 1 `<block>` filho** · JSON dos 4 `.scm` válido · ordem de execução conferida percorrendo a cadeia `next` · `.aia` rezipado e `aia_bytes.py` regenerado.
+8. **Regra permanente:** ver itens 6 a 8 da seção 4.
+
+### 3.10 Encerrar não funcionava: instante de data no TinyDB (sessão atual)
+1. **Bug relatado:** selecionar a recarga no `ListPicker`, tocar em **Encerrar** e nada acontecer. Às vezes aparecia `The operation Duration cannot accept the arguments: ["java.util.GregorianCalendar[time=...]"], [java.util.GregorianCalendar[time=...]]`.
+2. **A pista está nas aspas da mensagem:** o **1º** argumento vem entre aspas (`["java.util..."]`) — é **texto**; o **2º** não (`[java.util...]`) — é um instante de verdade. O `Clock1.Duration` exige dois instantes.
+3. **Causa raiz:** o `Screen3` gravava o início da recarga como `Clock1.Now`, que é um **objeto de data** (`java.util.Calendar`). O **TinyDB só persiste texto, número, booleano e lista** — ele serializa o resto via `toString()`. Na volta, `recargasAtivas[i][3]` era a string `"java.util.GregorianCalendar[time=1786654040813,...]"`, e o `Duration` do `Screen2` recusava o argumento. Como o erro acontecia **antes** do `ShowAlert` de confirmação, a impressão era de que o botão não fazia nada.
+4. **Correção:**
+   - `Screen3` passou a gravar `Clock1.GetMillis(Clock1.Now)` — um **número** de milissegundos, que o TinyDB persiste sem perda (`blkMS1`, envolvendo o `blk290` original).
+   - `Screen2` trocou o `Clock1.Duration` (`blk147`) por `math_subtract`: `GetMillis(Now) − inicio`.
+   - **Guarda para registro antigo:** o subtraendo é um `controls_choose` — `se é número?(inicio) então inicio senão GetMillis(Now)`. Recarga gravada no formato velho encerra com duração 0 em vez de quebrar o app, e sai da lista de ativas. Autolimpa sem precisar apagar os dados do Companion.
+5. **Verificação:** XML válido nas 4 telas · ids únicos (Screen2 237→243, Screen3 97→98) · todo `statement`/`value`/`next` com 1 bloco filho · nenhum `method_name="Duration"` restante · `.aia` rezipado e `aia_bytes.py` regenerado.
+6. **Regra permanente:** ver item 10 da seção 4.
+
+### 3.11 Histórico "vazio": texto branco em fundo branco (sessão atual)
+1. **Bug relatado:** depois de encerrar com sucesso, o Screen4 não mostrava nada.
+2. **Dedução antes de investigar:** no `Button2.Click` (Encerrar) o `StoreValue("historico")` vem **antes** do `StoreValue("recargasAtivas")`. Se a recarga saiu da lista de ativas, o histórico foi gravado. Logo o problema era de exibição, não de dados — e os blocos do Screen4 (`Screen4.Initialize` monta `exibicao` e joga em `ListView1.Elements`) estavam corretos.
+3. **Causa raiz:** o componente `ListView` do App Inventor tem, de fábrica, **fundo preto e texto branco** (`DEFAULT_BACKGROUND_COLOR = COLOR_BLACK`, `DEFAULT_TEXT_COLOR = COLOR_WHITE`). O `.scm` definia `BackgroundColor: "&HFFFFFFFF"` e **não definia `TextColor`** — sobrou branco sobre branco. Os registros estavam na tela o tempo todo, ilegíveis. O `ListPicker1` do Screen2 tinha as duas cores definidas; o `ListView1` só uma.
+4. **Correção:** `ListView1` (Screen4) recebeu `"TextColor": "&HFF212121"` e `"TextSize": "16"`.
+5. **Regra permanente:** ver item 11 da seção 4.
+
+### 3.12 `Cannot find the component: Label4` — o Clock esquecido do Screen3 (sessão atual)
+1. **Bug relatado:** ao testar recarga perto do limite, o alerta por voz funcionou, mas passou a aparecer `Cannot find the component: Label4` repetindo.
+2. **A correção de 3.9.6 estava intacta** (`Clock1.TimerEnabled = false` antes de abrir Screen3/Screen4, `true` no `Initialize`/`OtherScreenClosed`) — mas cobria só o Clock do **Screen2**.
+3. **Causa raiz:** o **Screen3 tem um `Clock1` próprio**, e o `.scm` dele não definia **nenhuma** propriedade — valendo os padrões do App Inventor: `TimerEnabled: True`, `TimerInterval: 1000`, `TimerAlwaysFires: True`. O Screen3 usa o Clock apenas para carimbar a hora (`GetMillis`/`Now`); o timer estava ligado por acidente.
+   Como o **App Inventor despacha eventos por nome de componente** e os dois relógios se chamam `Clock1`, o tique do Screen3 acionava o handler `Clock1.Timer` **do Screen2**, rodando `AtualizarPainel` com o Screen3 na frente — onde `Label4` não existe.
+4. **A mensagem de erro confirma o mecanismo:** a falha para em `Label4`, o **primeiro componente visual** do `AtualizarPainel`. Tudo antes dele resolve porque não é componente visual da tela: `global total`/`nomes`/`limite`/`nomesAnt` são do Screen2 (capturados lexicamente pelo handler) e `TinyDB1` existe nas duas telas. Só a busca de componente visual passa pela tela ativa.
+5. **Correção:** `Clock1` do Screen3 recebeu `"TimerEnabled": "False"` e `"TimerAlwaysFires": "False"`. Nada nos blocos.
+6. **Segundo sintoma do mesmo relato — registro novo sumindo do histórico:** o Screen4 tinha `Scrollable: "True"` com `ListView1` de altura `Automatic` (`-2`). Numa tela rolável a altura disponível é ilimitada, então o `ListView` não consegue se medir nem rolar internamente: ele fixa um tamanho e **corta os itens seguintes** — os antigos aparecem, os novos não. Configuração correta aplicada: `Screen4.Scrollable: "False"`, `VerticalArrangement1.Height: "-1"` e `ListView1.Height: "-1"` (Fill parent), deixando o próprio `ListView` rolar por dentro.
+7. **Regra permanente:** ver itens 12 e 13 da seção 4.
+
+### 3.13 Formatação da linha do histórico (sessão atual)
+1. **Motivo:** os números saíam crus — `18.000000001 kWh | 2.5083333 h` — e a potência não aparecia. Num teste de 2 minutos a linha virava um monte de zeros, ruim para a demonstração (UX/UI vale 20% da nota).
+2. **Formato novo** (`text_join` `blk323` do Screen4, 8 → 11 itens):
+   `Bia | 18.00 kWh | 2h 30min | 7.2 kW | 13/08/2026 20:45`
+3. **Nada mudou no que é gravado.** A potência é **derivada** de `kWh ÷ horas` (matematicamente idêntica ao kW cadastrado, já que `kwh = kw × horas`). Guardar um 5º campo faria os registros antigos, de 4 campos, estourarem `select list item` — os registros existentes continuam funcionando sem migração.
+4. **Detalhes que exigiram cuidado:**
+   - **Minutos:** arredondar para minutos **antes** de separar h/min (`round(horas × 60)`, depois `floor(÷60)` e o resto). Fazendo `floor` na fração direto, uma recarga de 2 min (0,0333 h) sairia como `0h 1min`.
+   - **Divisão por zero:** o registro legado tem `horas = 0`; a potência passa por um `controls_choose` (`se horas > 0 então kWh/horas senão 0`).
+   - **Separadores em ASCII** (`|`), seguindo a convenção do resto do app, cujos textos não têm acento nenhum.
+5. **Blocos usados** (nomes conferidos no fonte `blocklyeditor/src/blocks/math.js` do App Inventor, não de memória): `math_single` com `<field name="OP">` ∈ `ROUND`/`CEILING`/`FLOOR`, e `math_format_as_decimal` com `<value name="NUM">` e `<value name="PLACES">`.
+6. **Armadilha encontrada no caminho:** a primeira versão gerou **ids duplicados** (`blkF30`, `blkF40`…) porque os ids eram montados por concatenação de índices. Trocado por contador sequencial — ver item 14 da seção 4.
+7. **Verificação:** XML válido nas 4 telas · ids únicos (Screen4 32→75 blocos) · `mutation items="11"` batendo com os 11 `ADD` · todo `statement`/`value`/`next` com 1 bloco filho · `.bky` 100% ASCII · `aia_bytes.py` regenerado.
+
 ---
 
 ## 4. Aprendizados / armadilhas (IMPORTANTE para a próxima sessão)
@@ -157,7 +222,15 @@ Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards branco
 3. **Editar arquivo sem antes ler dá erro silencioso** — a ferramenta de edição não persiste a mudança se o arquivo não foi lido antes. Sempre ler antes de editar.
 4. **Saída do terminal pode vir corrompida** (linhas duplicadas). Padrão confiável: `python ... > arquivo.txt` e ler com a ferramenta de leitura em arquivos curtos.
 5. **Heredocs no shell podem dar problema** com conteúdo grande/acentuado; preferir arquivos em `/tmp` + `cp`.
-6. Validações que SEMPRE rodar após mexer no `.aia`: JSON dos `.scm`; XML dos `.bky` **com o namespace Blockly** (`root.iter('{%s}block' % NS)`); ids de blocos únicos por tela; todo `<value>` com exatamente 1 `<block>` filho (sem texto solto — ex.: `ARG1` do GetValue); presença de `"MaxValue": "22"`, "kW em uso de", `"TimerEnabled": "True"` e `"TimerInterval": "2000"` no Clock1; ausência de `TextBox3`/`Button4`; ausência de `NumbersOnly` no TextBox2; presença de `EhNumero` e de `limite` (não `22` fixo) na validação do Screen3; lógica `statusAnt`/`nomesAnt`; **nenhum `procedures_defreturn` com `<statement name="STACK">`** (usar `controls_do_then_return` — ver 3.7). Slider (Screen2): `Enabled: "True"`, `MinValue: "5"`, `MaxValue: "60"`, evento `PositionChanged` presente (mutation `event_name="PositionChanged"` + parâmetro `thumbValue`), e `AtualizarPainel` **sem** blocos de `set Slider1.MaxValue/Value` (ver 3.8).
+6. **NUNCA colocar blocos irmãos dentro de um `<statement>`** — o Blockly carrega **só o último** e descarta o resto sem avisar. Comandos em sequência se encadeiam com `<next>` aninhado (ver 3.9). Vale para `statement` e `value`: **exatamente 1 `<block>` filho direto em cada um**. Este foi o bug mais caro do projeto e a causa real de vários sintomas que foram atribuídos a build antigo.
+7. **Não reserializar os `.bky` com um parser XML genérico** (`ElementTree`, `minidom`): as `mutation` declaram `xmlns="http://www.w3.org/1999/xhtml"` e o parser as reescreve com prefixo (`<ns1:mutation>`), o que faz o App Inventor **não reconhecer a mutation** e quebrar o bloco. Editar preservando o texto original das tags.
+8. **`Clock` com `TimerEnabled` continua disparando em outras telas** (`TimerAlwaysFires` tem padrão **True**). Se o evento do timer mexe em componentes da tela, desligue o timer antes de `open another screen` e religue no `Initialize`/`OtherScreenClosed` — senão dá `Cannot find the component: X` a cada tick (ver 3.9.6).
+10. **O TinyDB não guarda objeto de data.** Ele persiste texto, número, booleano e lista; qualquer outra coisa vira `toString()` e volta como string. Nunca grave `Clock1.Now` — grave `Clock1.GetMillis(Clock1.Now)` e calcule a diferença por subtração (ver 3.10). O sintoma é `Duration cannot accept the arguments`, com o argumento vindo do banco **entre aspas** na mensagem de erro.
+11. **Ao mudar a cor de fundo de um componente, defina também a cor do texto.** O `ListView` nasce preto com texto branco; mudar só o fundo para branco deixa a lista invisível e parece "lista vazia" (ver 3.11). Vale para `ListView`, `ListPicker` e `Button`.
+12. **Componente com o mesmo nome em telas diferentes é armadilha:** o App Inventor despacha eventos por **nome**, então o `Clock1` de uma tela pode acionar o handler `Clock1.Timer` de outra. Um `Clock` usado só para pegar a hora deve ter `TimerEnabled: "False"` explícito — o padrão do componente é **ligado**, a cada 1000 ms (ver 3.12). Ao auditar, liste as propriedades de **todos** os Clocks das 4 telas, não só o do Screen2.
+13. **`ListView` não funciona em tela `Scrollable`.** Numa tela rolável a altura é ilimitada, o `ListView` não se mede nem rola por dentro, e itens somem sem erro nenhum. Use `Scrollable: "False"` na tela e `Height: "-1"` (Fill parent) no arranjo e no `ListView` (ver 3.12.6).
+14. **Ao gerar blocos novos, use contador sequencial para os ids** (`blkF001`, `blkF002`…), nunca concatenação de índices — isso já produziu colisão silenciosa (ver 3.13.6). E **confira o nome do tipo de bloco no fonte do App Inventor** (`blocklyeditor/src/blocks/*.js`) antes de escrever, em vez de deduzir: tipo errado não dá erro de XML, o bloco só some.
+9. Validações que SEMPRE rodar após mexer no `.aia`: JSON dos `.scm`; XML dos `.bky` **com o namespace Blockly** (`root.iter('{%s}block' % NS)`); ids de blocos únicos por tela; todo `<value>` com exatamente 1 `<block>` filho (sem texto solto — ex.: `ARG1` do GetValue); presença de `"MaxValue": "22"`, "kW em uso de", `"TimerEnabled": "True"` e `"TimerInterval": "2000"` no Clock1; ausência de `TextBox3`/`Button4`; ausência de `NumbersOnly` no TextBox2; presença de `EhNumero` e de `limite` (não `22` fixo) na validação do Screen3; lógica `statusAnt`/`nomesAnt`; **nenhum `procedures_defreturn` com `<statement name="STACK">`** (usar `controls_do_then_return` — ver 3.7). Slider (Screen2): `Enabled: "True"`, `MinValue: "5"`, `MaxValue: "60"`, evento `PositionChanged` presente (mutation `event_name="PositionChanged"` + parâmetro `thumbValue`), e `AtualizarPainel` **sem** blocos de `set Slider1.MaxValue/Value` (ver 3.8).
 
 ---
 
