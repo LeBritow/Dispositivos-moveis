@@ -146,6 +146,7 @@ Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards branco
    - `Screen2.Initialize` ganhou `set Slider1.Value = global limite` (após carregar o limite do TinyDB) para o slider refletir o limite salvo.
    - **Removidos de `AtualizarPainel`** os 2 blocos que escreviam no slider (`set Slider1.MaxValue = limite` e `set Slider1.Value = choose(...)`), para não "brigar" com o arraste do usuário (o `AtualizarPainel` roda a cada 2 s e sobrescreveria o valor).
 4. **Verificação:** XML válido, ids únicos (229 blocos no Screen2.bky), `blk59`/`blk66` removidos, `blkS1` (evento) com DO = `blkS2`(set limite) → `blkS4`(StoreValue) → `blkS7`(Label6), `blk224` DO = set limite → `blkS12`(set Slider1.Value) → `AtualizarPainel`; `.aia` rezipado, `aia_bytes.py` **regenerado** e `TorreEV.aia` da pasta byte idêntico por conteúdo (9 arquivos; `project.properties` inalterado).
+5. **Marcador de versão (`v4`):** usuário relatou que nada era registrado mesmo após as correções — sintoma típico de **build/projeto antigo rodando no celular** (o app roda pelo site AI2 + AI Companion, ou seja, o que vale é o **projeto aberto no navegador**, não o `.aia` da pasta). Para diagnóstico definitivo, o Screen2 agora exibe **`PAINEL DO SINDICO - v4`** (Label1) e `Title: "Torre EV - Painel v4"` no `.scm`. Se o celular não mostrar "v4", o projeto aberto no AI2 é uma versão antiga → **importar o `TorreEV.aia` de novo** (Importar projeto) e testar por ele.
 
 ---
 
