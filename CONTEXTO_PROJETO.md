@@ -39,7 +39,7 @@ Dependências Python: `reportlab` (doc) e bibliotecas padrão (`zipfile`, `base6
 - **Package:** `appinventor.ai_gustavobrito170.TorreEV` · **Tela principal:** Screen1 · **YaVersion 237**
 - **4 telas:**
   - **Screen1 — Login:** senha (padrão `1234`), TextBox com `Password: True`, botão Entrar, erro no Label1, Notifier.
-  - **Screen2 — Painel:** cartões `CardStatus`/`CardUso`/`CardAcoes`, `Slider1` desabilitado como barra de carga, `Label4` (kW em uso), `Label6` (limite), `Label7` (vagas), `ListPicker1` (recargas ativas), botões Nova Recarga/Encerrar/Histórico, `Clock1` (Timer 2000 ms → `AtualizarPainel` automático), `TextToSpeech1`.
+  - **Screen2 — Painel:** cartões `CardStatus`/`CardUso`/`CardAcoes`, `Slider1` **interativo para ajustar o limite** (faixa 5–60 kW, salva em `limiteKw`, atualiza `Label6` ao mover), `Label4` (kW em uso), `Label6` (limite), `Label7` (vagas), `ListPicker1` (recargas ativas), botões Nova Recarga/Encerrar/Histórico, `Clock1` (Timer 2000 ms → `AtualizarPainel` automático), `TextToSpeech1`.
   - **Screen3 — Cadastro:** nome + kW (aceita ponto **ou vírgula** como decimal, ex. `7,2`), validação encadeada com `EhNumero(texto)` e limite **dinâmico** (`limite` do TinyDB), `CalcularTotal` (procedure com retorno).
   - **Screen4 — Histórico:** `ListView1` com nome, kWh, **duração (h)** e data.
 - **TinyDB (tags):**
@@ -49,7 +49,8 @@ Dependências Python: `reportlab` (doc) e bibliotecas padrão (`zipfile`, `base6
   - `historico` → lista de recargas encerradas `[nome, kwh, horas, dataHoraFormatada]`
 
 ### Lógica-chave (Screen2)
-- `AtualizarPainel` soma kW das ativas, atualiza labels + Slider; **rodada automaticamente a cada 2 s pelo `Clock1.Timer`** (TimerEnabled True, TimerInterval 2000).
+- `AtualizarPainel` soma kW das ativas e atualiza labels/cartão; **rodada automaticamente a cada 2 s pelo `Clock1.Timer`** (TimerEnabled True, TimerInterval 2000). Não mexe mais no Slider (ele é o controle de limite, ver abaixo).
+- **`Slider1.PositionChanged`:** ao mover o Slider, o valor vira o novo `limite` (evento usa o parâmetro `thumbValue`), grava em `TinyDB1.StoreValue("limiteKw", limite)` e atualiza `Label6` (`"limite: X kW"`). O `AtualizarPainel` seguinte (≤ 2 s) reavalia o semáforo com o novo limite. Faixa fixa no `.scm`: `MinValue 5`, `MaxValue 60`, `Value 22`, `Enabled True`.
 - **Semáforo:** verde < 80% do limite · amarelo ≥ 80% · vermelho > limite.
 - **Alertas só por transição de status** — variável global `statusAnt` **persiste** (não é zerada no Initialize); Notifier/TTS disparam apenas quando o status muda. Estado de emergência = cartão vermelho + "SOBRECARGA!".
 - **ListPicker sem "reset" a cada atualização:** os nomes das recargas ativas ficam em `nomesAnt` (lista); `ListPicker1.Elements`/`Selection` só são reescritos quando `nomes != nomesAnt` — preserva a seleção do síndico durante os ticks do timer.
@@ -136,6 +137,16 @@ Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards branco
 5. **Verificação:** XML válido (97 blocos, ids únicos), `blk272` sem `STACK` e com `RETURN`→`controls_do_then_return` (STM 2 blocos + VALUE getter), demais validadores (mutations de `controls_if`, JSON dos `.scm`, Sem TextBox3/Button4/NumbersOnly, Clock1, etc.) passando; `.aia` rezipado, `aia_bytes.py` **regenerado** e `TorreEV.aia` da pasta byte idêntico por conteúdo (9 arquivos).
 6. **Formato correto para "procedure com retorno + corpo":** em vez de `<statement name="STACK">` dentro de `procedures_defreturn`, usar um bloco `controls_do_then_return` dentro do `<value name="RETURN">` (com `<statement name="STM">` e `<value name="VALUE">`). Este é o padrão do AI2 desde 2013.
 
+### 3.8 Slider como controle do limite + esclarecimento de "salvar não atualiza histórico" (sessão atual)
+1. **Relato:** "cliquei em salvar e não atualizou o histórico nem nada" e "para que serve o slider? eu mexo e não acontece nada".
+2. **Esclarecimento de comportamento (não era bug):** salvar uma recarga **não adiciona ao Histórico** — o histórico (Screen4) só ganha registro ao **Encerrar** uma recarga no painel. Ao salvar, o Painel (Label4 kW/vagas) atualiza via `OtherScreenClosed` + `Clock1.Timer` (≤ 2 s). O slider antigo era **puramente visual** (`Enabled: "False"`, dirigido por `AtualizarPainel`) — mover não fazia nada por design. O "não salvava" real era o bug do `+` (3.7) — corrigido; é preciso **reimportar o novo `TorreEV.aia` e reconstruir** o app no celular para o fix valer.
+3. **Mudança (feature):** `Slider1` passou a ser o **controle do limite** no Screen2:
+   - `.scm`: `Enabled: "True"`, `MinValue: "5"`, `MaxValue: "60"`, `Value: "22"`.
+   - Novo evento `Slider1.PositionChanged` (`component_event`, mutation com `event_name="PositionChanged"` e parâmetro `thumbValue` — serializado como atributo `param_name0` na mutation, formato do AI2 moderno): `set global limite = thumbValue` → `TinyDB1.StoreValue("limiteKw", limite)` → `set Label6.Text = "limite: " + limite + " kW"`.
+   - `Screen2.Initialize` ganhou `set Slider1.Value = global limite` (após carregar o limite do TinyDB) para o slider refletir o limite salvo.
+   - **Removidos de `AtualizarPainel`** os 2 blocos que escreviam no slider (`set Slider1.MaxValue = limite` e `set Slider1.Value = choose(...)`), para não "brigar" com o arraste do usuário (o `AtualizarPainel` roda a cada 2 s e sobrescreveria o valor).
+4. **Verificação:** XML válido, ids únicos (229 blocos no Screen2.bky), `blk59`/`blk66` removidos, `blkS1` (evento) com DO = `blkS2`(set limite) → `blkS4`(StoreValue) → `blkS7`(Label6), `blk224` DO = set limite → `blkS12`(set Slider1.Value) → `AtualizarPainel`; `.aia` rezipado, `aia_bytes.py` **regenerado** e `TorreEV.aia` da pasta byte idêntico por conteúdo (9 arquivos; `project.properties` inalterado).
+
 ---
 
 ## 4. Aprendizados / armadilhas (IMPORTANTE para a próxima sessão)
@@ -145,15 +156,15 @@ Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards branco
 3. **Editar arquivo sem antes ler dá erro silencioso** — a ferramenta de edição não persiste a mudança se o arquivo não foi lido antes. Sempre ler antes de editar.
 4. **Saída do terminal pode vir corrompida** (linhas duplicadas). Padrão confiável: `python ... > arquivo.txt` e ler com a ferramenta de leitura em arquivos curtos.
 5. **Heredocs no shell podem dar problema** com conteúdo grande/acentuado; preferir arquivos em `/tmp` + `cp`.
-6. Validações que SEMPRE rodar após mexer no `.aia`: JSON dos `.scm`; XML dos `.bky` **com o namespace Blockly** (`root.iter('{%s}block' % NS)`); ids de blocos únicos por tela; todo `<value>` com exatamente 1 `<block>` filho (sem texto solto — ex.: `ARG1` do GetValue); presença de `"MaxValue": "22"`, "kW em uso de", `"TimerEnabled": "True"` e `"TimerInterval": "2000"` no Clock1; ausência de `TextBox3`/`Button4`; ausência de `NumbersOnly` no TextBox2; presença de `EhNumero` e de `limite` (não `22` fixo) na validação do Screen3; lógica `statusAnt`/`nomesAnt`; **nenhum `procedures_defreturn` com `<statement name="STACK">`** (usar `controls_do_then_return` — ver 3.7).
+6. Validações que SEMPRE rodar após mexer no `.aia`: JSON dos `.scm`; XML dos `.bky` **com o namespace Blockly** (`root.iter('{%s}block' % NS)`); ids de blocos únicos por tela; todo `<value>` com exatamente 1 `<block>` filho (sem texto solto — ex.: `ARG1` do GetValue); presença de `"MaxValue": "22"`, "kW em uso de", `"TimerEnabled": "True"` e `"TimerInterval": "2000"` no Clock1; ausência de `TextBox3`/`Button4`; ausência de `NumbersOnly` no TextBox2; presença de `EhNumero` e de `limite` (não `22` fixo) na validação do Screen3; lógica `statusAnt`/`nomesAnt`; **nenhum `procedures_defreturn` com `<statement name="STACK">`** (usar `controls_do_then_return` — ver 3.7). Slider (Screen2): `Enabled: "True"`, `MinValue: "5"`, `MaxValue: "60"`, evento `PositionChanged` presente (mutation `event_name="PositionChanged"` + parâmetro `thumbValue`), e `AtualizarPainel` **sem** blocos de `set Slider1.MaxValue/Value` (ver 3.8).
 
 ---
 
 ## 5. Instruções para quem retomar o trabalho
 
 1. **Importar:** App Inventor → Projetos → Importar projeto (.aia) → selecionar `TorreEV.aia`.
-2. **Verificar:** abrir Screen2 → blocos → confirmar `AtualizarPainel`, a transição de status com `statusAnt` (persistente) e o evento `Clock1.Timer`; Screen3 → confirmar `EhNumero` e validação com `limite`; Screen4 → linha com " | kWh | h | ". Pode-se também verificar que `TextBox2` não tem `NumbersOnly`.
-3. **Testar no celular:** AI Companion; fluxo: login (1234) → Nova Recarga → Salvar → voltar ao painel → Encerrar → Histórico.
+2. **Verificar:** abrir Screen2 → blocos → confirmar `AtualizarPainel`, a transição de status com `statusAnt` (persistente), o evento `Clock1.Timer` e o novo **`Slider1.PositionChanged`** (mover o slider muda o limite e o `Label6`); Screen3 → confirmar `EhNumero` e validação com `limite`; Screen4 → linha com " | kWh | h | ". Pode-se também verificar que `TextBox2` não tem `NumbersOnly`.
+3. **Testar no celular:** AI Companion; fluxo: login (1234) → Nova Recarga → Salvar → voltar ao painel (Label4/vagas sobem) → **arrastar o Slider** (limite/`Label6` mudam e ficam salvos) → Encerrar → Histórico. Lembrar: **histórico só recebe registros no Encerrar**; salvar apenas adiciona à recarga ativa.
 4. **Para testar sobrecarga:** cadastrar potências cuja soma ultrapasse 22 kW (ou reduzir `limiteKw` no TinyDB).
 5. **Para editar a geração:** editar os arquivos em `_gerador` (bytes em `aia_bytes.py` são a fonte para o `.aia`; para mudar o app de verdade, editar o `.aia` no App Inventor e re-embutir os bytes).
 6. **Re-embutir bytes após mudar o `.aia` no App Inventor:**
