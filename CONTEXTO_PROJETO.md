@@ -69,6 +69,7 @@ Form 32 · Vertical/HorizontalArrangement 4 · Label 5 · TextBox 14 · Button 7
 - Mutations são serializadas como `></mutation>` (não self-closing).
 - JSON do `.scm` usa espaços (`"MaxValue": "22"`).
 - Blocos `global_declaration`/eventos top-level: `inline="false"` explícito + `x`/`y` (posicionamento em grade).
+- `procedures_defreturn` **não tem `STACK`**: para procedure com retorno e corpo, usar `controls_do_then_return` dentro do `<value name="RETURN">` (o gerador YAIL ignora `STACK` desde 2013 — ver 3.7).
 
 ### Paleta de cores do app
 Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards brancos · Verde `#4CAF50` · Vermelho `#D32F2F` · Verde-salvar `#388E3C` · Cinza-botões `#EEEEEE`
@@ -124,6 +125,17 @@ Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards branco
 5. **Mutations `controls_if` normalizadas** (eram maior que o número real de ramos → ramos elseif mortos com condição `#f`): `blk89`/`blk108`/`blk120` (transições de status) perderam o `elseif="1"`; `blk121` `elseif="2"`→`elseif="1"`; `blk190` (Encerrar) `elseif="1" else="1"`→`else="1"`; `blk299` (Screen3) `elseif="3"`→`elseif="2"`. Verificado que cada `controls_if` agora tem exatamente os ramos declarados.
 6. **Validação agora com namespace correto:** checar `value`/`statement` via `{%s}value % NS` e ids via `root.iter('{%s}block' % NS)` — captura `value` vazio e ids duplicados de verdade.
 
+### 3.7 Erro de runtime `+` com `false` no cadastro (sessão atual)
+1. **Bug relatado:** ao salvar uma recarga (ex.: 8.8 kW), erro de runtime `The operation + cannot accept the arguments: [false], ["8.8"]` e **nada era salvo**.
+2. **Investigação:** o erro é o `math_add` do IF2 do Screen3: `(CalcularTotal() + potênciaNormalizada) > limite`. O segundo argumento `"8.8"` era o `substituir "," por "."` (correto); o **primeiro argumento era `false`**, ou seja, `CalcularTotal()` retornava `false`/valor não numérico.
+3. **Causa raiz (estrutural):** a procedure `CalcularTotal` (bloco `procedures_defreturn`) usava o formato **antigo (2012)** com `<statement name="STACK">` contendo o `set total = 0` e o `for-each` da soma. O gerador YAIL do App Inventor **ignora o `STACK` de `procedures_defreturn` desde 2013** (`[lyn, 01/15/2013] Edited to remove STACK (no longer necessary with DO-THEN-RETURN)`) — confirmado no fonte `generators/yail/procedures.js` e comparando com um `.bky` real exportado pelo AI2 (projeto de referência `kio4/p46.aia`), cujo `defreturn` só tem `RETURN`, sem `STACK`. O App Inventor moderno tem `bodyInputName: 'RETURN'` e **nenhum input `STACK`** no bloco de procedure com retorno. Consequência: o corpo do cálculo era descartado e a procedure retornava o valor do global `total` (ou `false` se não numérico) — a soma nunca era calculada, o IF2/IF3 nunca passavam e **nada era salvo**.
+4. **Correção no `Screen3.bky` (`blk272`):** removido o `<statement name="STACK">` do `procedures_defreturn`; o corpo (`set global total = 0` + `for-each` somando `list-select-item(item, 2)`) e o retorno (`global total`) foram movidos para um bloco **`controls_do_then_return`** dentro do `<value name="RETURN">`:
+   - `<value name="RETURN">` → `<block type="controls_do_then_return" id="blkCT1">` com `<statement name="STM">` (2 blocos: set + for-each) e `<value name="VALUE">` (getter `global total`, `blk271`).
+   - Gera YAIL: `(def (p$CalcularTotal) (begin (set-var! g$total 0) (for-each ...) (get-var g$total)))` — **sempre retorna número** (0 ou a soma real).
+   - A outra procedure `EhNumero` (`blk500`) já estava no formato correto (só `RETURN`, sem `STACK`) — não exigiu mudança.
+5. **Verificação:** XML válido (97 blocos, ids únicos), `blk272` sem `STACK` e com `RETURN`→`controls_do_then_return` (STM 2 blocos + VALUE getter), demais validadores (mutations de `controls_if`, JSON dos `.scm`, Sem TextBox3/Button4/NumbersOnly, Clock1, etc.) passando; `.aia` rezipado, `aia_bytes.py` **regenerado** e `TorreEV.aia` da pasta byte idêntico por conteúdo (9 arquivos).
+6. **Formato correto para "procedure com retorno + corpo":** em vez de `<statement name="STACK">` dentro de `procedures_defreturn`, usar um bloco `controls_do_then_return` dentro do `<value name="RETURN">` (com `<statement name="STM">` e `<value name="VALUE">`). Este é o padrão do AI2 desde 2013.
+
 ---
 
 ## 4. Aprendizados / armadilhas (IMPORTANTE para a próxima sessão)
@@ -133,7 +145,7 @@ Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards branco
 3. **Editar arquivo sem antes ler dá erro silencioso** — a ferramenta de edição não persiste a mudança se o arquivo não foi lido antes. Sempre ler antes de editar.
 4. **Saída do terminal pode vir corrompida** (linhas duplicadas). Padrão confiável: `python ... > arquivo.txt` e ler com a ferramenta de leitura em arquivos curtos.
 5. **Heredocs no shell podem dar problema** com conteúdo grande/acentuado; preferir arquivos em `/tmp` + `cp`.
-6. Validações que SEMPRE rodar após mexer no `.aia`: JSON dos `.scm`; XML dos `.bky` **com o namespace Blockly** (`root.iter('{%s}block' % NS)`); ids de blocos únicos por tela; todo `<value>` com exatamente 1 `<block>` filho (sem texto solto — ex.: `ARG1` do GetValue); presença de `"MaxValue": "22"`, "kW em uso de", `"TimerEnabled": "True"` e `"TimerInterval": "2000"` no Clock1; ausência de `TextBox3`/`Button4`; ausência de `NumbersOnly` no TextBox2; presença de `EhNumero` e de `limite` (não `22` fixo) na validação do Screen3; lógica `statusAnt`/`nomesAnt`.
+6. Validações que SEMPRE rodar após mexer no `.aia`: JSON dos `.scm`; XML dos `.bky` **com o namespace Blockly** (`root.iter('{%s}block' % NS)`); ids de blocos únicos por tela; todo `<value>` com exatamente 1 `<block>` filho (sem texto solto — ex.: `ARG1` do GetValue); presença de `"MaxValue": "22"`, "kW em uso de", `"TimerEnabled": "True"` e `"TimerInterval": "2000"` no Clock1; ausência de `TextBox3`/`Button4`; ausência de `NumbersOnly` no TextBox2; presença de `EhNumero` e de `limite` (não `22` fixo) na validação do Screen3; lógica `statusAnt`/`nomesAnt`; **nenhum `procedures_defreturn` com `<statement name="STACK">`** (usar `controls_do_then_return` — ver 3.7).
 
 ---
 
