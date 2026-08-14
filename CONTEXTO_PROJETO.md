@@ -213,6 +213,23 @@ Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards branco
 6. **Armadilha encontrada no caminho:** a primeira versão gerou **ids duplicados** (`blkF30`, `blkF40`…) porque os ids eram montados por concatenação de índices. Trocado por contador sequencial — ver item 14 da seção 4.
 7. **Verificação:** XML válido nas 4 telas · ids únicos (Screen4 32→75 blocos) · `mutation items="11"` batendo com os 11 `ADD` · todo `statement`/`value`/`next` com 1 bloco filho · `.bky` 100% ASCII · `aia_bytes.py` regenerado.
 
+### 3.14 Botão voltar do celular saía do app (sessão atual)
+1. **Bug relatado:** no Histórico, o botão voltar do aparelho fechava o aplicativo em vez de retornar ao painel.
+2. **Descartado primeiro:** a suspeita de que o ajuste de layout de 3.12.6 tivesse empurrado o botão "Voltar" para fora da tela. Não é o caso — o App Inventor implementa Fill parent em arranjo vertical com **peso** (`ViewUtil.setChildHeightForVerticalLayout`: `height = 0; weight = 1`), então o `ListView` fica só com o espaço que sobra e o `Button1` continua visível.
+3. **Causa raiz:** nenhuma tela tinha handler para o evento `BackPressed` do `Form`. Sem handler, o `Form.onBackPressed()` cai em `super.onBackPressed()` e quem decide o que acontece é o Android — não o app.
+   ```java
+   public void onBackPressed() {
+     if (!BackPressed()) {                 // false quando nao ha handler
+       AnimationUtil.ApplyCloseScreenAnimation(this, closeAnimType);
+       super.onBackPressed();
+     }
+   }
+   ```
+4. **Correção:** `Screen3.BackPressed` e `Screen4.BackPressed` (`blkBP1`/`blkBP3`), cada um com um `controls_closeScreen`. Com o handler presente o `BackPressed()` devolve **true** e o `super.onBackPressed()` nunca roda — por isso o `close screen` dentro dele é obrigatório, senão o botão voltar não faria nada.
+5. **Ganho secundário:** o botão voltar passa a fechar a tela pelo **mesmo caminho** do botão "Voltar" da tela, disparando o `OtherScreenClosed` do Screen2 — que é quem religa o `Clock1` (3.9.6). Antes, sair pelo botão do aparelho podia deixar o painel com o timer desligado, sem atualização automática.
+6. **Screen1 e Screen2 ficaram sem handler de propósito:** voltar no login e no painel deve seguir o comportamento padrão do Android.
+7. **Regra permanente:** ver item 15 da seção 4.
+
 ---
 
 ## 4. Aprendizados / armadilhas (IMPORTANTE para a próxima sessão)
@@ -230,6 +247,7 @@ Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards branco
 12. **Componente com o mesmo nome em telas diferentes é armadilha:** o App Inventor despacha eventos por **nome**, então o `Clock1` de uma tela pode acionar o handler `Clock1.Timer` de outra. Um `Clock` usado só para pegar a hora deve ter `TimerEnabled: "False"` explícito — o padrão do componente é **ligado**, a cada 1000 ms (ver 3.12). Ao auditar, liste as propriedades de **todos** os Clocks das 4 telas, não só o do Screen2.
 13. **`ListView` não funciona em tela `Scrollable`.** Numa tela rolável a altura é ilimitada, o `ListView` não se mede nem rola por dentro, e itens somem sem erro nenhum. Use `Scrollable: "False"` na tela e `Height: "-1"` (Fill parent) no arranjo e no `ListView` (ver 3.12.6).
 14. **Ao gerar blocos novos, use contador sequencial para os ids** (`blkF001`, `blkF002`…), nunca concatenação de índices — isso já produziu colisão silenciosa (ver 3.13.6). E **confira o nome do tipo de bloco no fonte do App Inventor** (`blocklyeditor/src/blocks/*.js`) antes de escrever, em vez de deduzir: tipo errado não dá erro de XML, o bloco só some.
+15. **Toda tela secundária precisa de `BackPressed` → `close screen`.** Sem o handler, o botão voltar do aparelho cai no comportamento padrão do Android e pode sair do app; e a tela não fecha pelo caminho do bloco `close screen`, então o `OtherScreenClosed` da tela de origem não dispara — no Torre EV isso deixaria o `Clock1` do painel desligado (ver 3.14).
 9. Validações que SEMPRE rodar após mexer no `.aia`: JSON dos `.scm`; XML dos `.bky` **com o namespace Blockly** (`root.iter('{%s}block' % NS)`); ids de blocos únicos por tela; todo `<value>` com exatamente 1 `<block>` filho (sem texto solto — ex.: `ARG1` do GetValue); presença de `"MaxValue": "22"`, "kW em uso de", `"TimerEnabled": "True"` e `"TimerInterval": "2000"` no Clock1; ausência de `TextBox3`/`Button4`; ausência de `NumbersOnly` no TextBox2; presença de `EhNumero` e de `limite` (não `22` fixo) na validação do Screen3; lógica `statusAnt`/`nomesAnt`; **nenhum `procedures_defreturn` com `<statement name="STACK">`** (usar `controls_do_then_return` — ver 3.7). Slider (Screen2): `Enabled: "True"`, `MinValue: "5"`, `MaxValue: "60"`, evento `PositionChanged` presente (mutation `event_name="PositionChanged"` + parâmetro `thumbValue`), e `AtualizarPainel` **sem** blocos de `set Slider1.MaxValue/Value` (ver 3.8).
 
 ---
