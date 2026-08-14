@@ -12,10 +12,16 @@
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[brazil]{babel}
+\usepackage[brazilian]{babel}
 \usepackage{lmodern}
 
+% folga extra na justificacao: evita que nomes de componente em fonte
+% monoespacada, que nao hifenizam, estourem a margem
+\setlength{\emergencystretch}{3em}
+
 \usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{microtype}
 \usepackage{graphicx}
 \usepackage{pdflscape}
 \usepackage{booktabs}
@@ -34,7 +40,12 @@
 
 \title{\vspace{-1.5cm}\textbf{Torre EV --- Painel do Síndico}\\[0.3cm]
 \large Gestão de recarga de veículos elétricos em condomínio}
-\author{Henrique Marangoni \and \textit{[nome do colega]}}
+\author{
+Henrique de Almeida Marangoni Inacio \\
+Alex Junior \\
+Gustavo Brito \\
+André Moreira
+}
 \date{Programação de Dispositivos Móveis \\ MIT App Inventor 2 \\[0.3cm] \today}
 
 \begin{document}
