@@ -36,6 +36,10 @@ Dependências Python: `reportlab` (doc) e bibliotecas padrão (`zipfile`, `base6
 
 ## 2. O aplicativo (especificação atual)
 
+> [!] **Os nomes mudaram.** Telas e componentes foram renomeados (ver 3.15). As seções
+> 3.x anteriores citam os nomes antigos de propósito — descrevem o que estava na tela
+> quando cada bug aconteceu. A tabela de-para está na **seção 6**.
+
 - **Package:** `appinventor.ai_gustavobrito170.TorreEV` · **Tela principal:** Screen1 · **YaVersion 237**
 - **4 telas:**
   - **Screen1 — Login:** senha (padrão `1234`), TextBox com `Password: True`, botão Entrar, erro no Label1, Notifier.
@@ -230,6 +234,16 @@ Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards branco
 6. **Screen1 e Screen2 ficaram sem handler de propósito:** voltar no login e no painel deve seguir o comportamento padrão do Android.
 7. **Regra permanente:** ver item 15 da seção 4.
 
+### 3.15 Renomeação de telas e componentes (sessão atual)
+1. **Motivo:** os prints dos blocos vão para a documentação em LaTeX, e `Button2.Click` / `set Label4.Text` não explicam nada para quem corrige. Feito **antes** dos prints, de propósito — depois teriam que ser refeitos.
+2. **50 componentes renomeados** (10 no Screen1, 21 no Painel, 13 no Cadastro, 6 no Historico) e **3 telas**: `Screen2`→`Painel`, `Screen3`→`Cadastro`, `Screen4`→`Historico`. Padrão: português sem acento, PascalCase, tipo na frente (`BotaoEncerrar`, `LabelKwEmUso`, `CampoPotencia`).
+3. **`Screen1` continua `Screen1`** — é a tela principal (`main=` no `project.properties`) e o App Inventor não permite renomear.
+4. **Renomear tela não existe na interface do AI2.** A recomendação da comunidade é criar tela nova, copiar componentes, copiar blocos pela BackPack e apagar a antiga. Aqui foi feito direto no `.aia`, que é mais seguro: renomear os arquivos `.scm`/`.bky`, o `$Name` do Form, o `instance_name`/`COMPONENT_SELECTOR` dos eventos de tela e o **texto** dos blocos `open another screen`.
+5. **Ganho estrutural:** os dois `Clock1` homônimos (Screen2 e Screen3) viraram `RelogioPainel` e `RelogioCarimbo`. Como o App Inventor despacha eventos **por nome de componente**, era exatamente essa coincidência que causava o bug 3.12. Agora a classe do problema deixa de existir, em vez de depender de o timer estar desligado.
+6. **Verificação:** JSON e XML válidos nas 4 telas · toda referência de bloco tem componente correspondente no designer · nenhum nome duplicado por tela · ids de bloco únicos · **nenhum nome genérico restante** (`Button\d+`, `Label\d+`, etc., exceto `Screen1`) · as 3 aberturas de tela apontam para telas que existem · `main=` e `lastopened=` intactos.
+7. **Pendência conhecida:** o `_gerador/gerar_doc.py` (o gerador antigo, em reportlab) cita `Screen2`/`Screen3`/`Screen4` em 16 lugares e ficou desatualizado. Ele foi mantido por decisão do Henrique; o PDF novo será o LaTeX.
+8. **Tabela de-para:** seção 6.
+
 ---
 
 ## 4. Aprendizados / armadilhas (IMPORTANTE para a próxima sessão)
@@ -269,3 +283,92 @@ Fundo `#F5F5F5` · Primário `#0D47A1` · Escuro `#002171` · Acima/cards branco
    out.append('}')
    open('_gerador/aia_bytes.py', 'w').write('\n'.join(out))
    ```
+
+---
+
+## 6. Tabela de-para dos nomes (renomeação de 3.15)
+
+As seções 3.1 a 3.14 citam os **nomes antigos** de propósito: elas registram o que estava
+na tela quando cada bug aconteceu. Use esta tabela para traduzir.
+
+### Telas
+
+| Antes | Depois | Papel |
+|---|---|---|
+| `Screen1` | `Screen1` (não muda) | Login |
+| `Screen2` | `Painel` | Dashboard do síndico |
+| `Screen3` | `Cadastro` | Nova recarga |
+| `Screen4` | `Historico` | Recargas encerradas |
+
+### Screen1 — Login
+
+| Antes | Depois |
+|---|---|
+| `VerticalArrangement1` | `LayoutLogin` |
+| `Label1` | `TituloApp` |
+| `Label2` | `SubtituloApp` |
+| `Label3` | `EspacoTopo` |
+| `Label5` | `RotuloSenha` |
+| `TextBox1` | `CampoSenha` |
+| `Button1` | `BotaoEntrar` |
+| `Label4` | `LabelErro` |
+| `TinyDB1` | `BancoLocal` |
+| `Notifier1` | `Aviso` |
+
+### Painel (ex-Screen2)
+
+| Antes | Depois |
+|---|---|
+| `VerticalArrangement1` | `LayoutPainel` |
+| `Label1` | `TituloPainel` |
+| `Label2` | `StatusTexto` |
+| `Label5` | `StatusDetalhe` |
+| `Label8` / `Label10` | `Espaco1` / `Espaco2` |
+| `Label9` | `RotuloCarga` |
+| `Label4` | `LabelKwEmUso` |
+| `Label6` | `LabelLimite` |
+| `Label7` | `LabelVagas` |
+| `Slider1` | `SliderLimite` |
+| `ListPicker1` | `SeletorRecarga` |
+| `HorizontalArrangement3` | `LinhaBotoes` |
+| `Button1` | `BotaoNovaRecarga` |
+| `Button2` | `BotaoEncerrar` |
+| `Button3` | `BotaoHistorico` |
+| `TinyDB1` | `BancoLocal` |
+| `Notifier1` | `Aviso` |
+| `TextToSpeech1` | `Voz` |
+| `Clock1` | `RelogioPainel` |
+
+`CardStatus`, `CardUso` e `CardAcoes` já tinham nome bom e não mudaram.
+
+### Cadastro (ex-Screen3)
+
+| Antes | Depois |
+|---|---|
+| `VerticalArrangement1` | `LayoutCadastro` |
+| `Label1` | `TituloCadastro` |
+| `CardCad` | `CardCadastro` |
+| `Label2` | `RotuloNome` |
+| `TextBox1` | `CampoNome` |
+| `Label3` | `RotuloPotencia` |
+| `TextBox2` | `CampoPotencia` |
+| `Button1` | `BotaoSalvar` |
+| `Button2` | `BotaoVoltar` |
+| `TinyDB1` | `BancoLocal` |
+| `Notifier1` | `Aviso` |
+| `Clock1` | `RelogioCarimbo` |
+
+### Historico (ex-Screen4)
+
+| Antes | Depois |
+|---|---|
+| `VerticalArrangement1` | `LayoutHistorico` |
+| `Label1` | `TituloHistorico` |
+| `ListView1` | `ListaHistorico` |
+| `Button1` | `BotaoVoltar` |
+| `TinyDB1` | `BancoLocal` |
+
+### Blocos citados nas seções 3.x
+
+Os ids (`blk84`, `blk190`, `blk323`…) **não mudaram** — continuam válidos para localizar
+um bloco no `.bky`. Só os nomes de componente dentro deles mudaram.
